@@ -1,0 +1,8 @@
+
+<launch>
+  <node pkg="turtle_trajectories" type="turtle_trajectories.py" name="publisher_node" output="screen" />  
+  <node pkg="turtlesim" type="turtlesim_node" name="sim" output="screen" />
+</launch>
+
+
+
