@@ -98,10 +98,10 @@ def draw_square(velocity_publisher):
     length = float(input("Enter the edge length of the square (<= 4.0): "))
     if length > 4.0:
         rospy.logwarn("Too large! Reducing to 4.0")
-        length = 4.0
+        return
     if length <= 0:
         rospy.logwarn("Length must be positive! Setting to 1.0")
-        length = 1.0
+        return
     # We repeat 4 times (because the square has 4 sides).
     for _ in range(4):
 
@@ -115,12 +115,11 @@ def draw_triangle(velocity_publisher):
     side = float(input("Enter triangle side length (<= 4.0): "))
     if side > 4.0:
         rospy.logwarn("Too large! Reducing to 4.0")
-        side = 4.0
+        return
 
     if side <= 0:
         rospy.logwarn("Length must be positive! Setting to 1.0")
-        side = 1.0
-
+        return
 
     #We repeat the two steps (move + rotate) 3 times because the triangle has 3 sides.
     for _ in range(3):
@@ -129,19 +128,19 @@ def draw_triangle(velocity_publisher):
         rotate(velocity_publisher, 30, 120, False)
 
 def draw_circle(velocity_publisher):
-    radius = float(input("Enter circle radius (<= 4.0): "))
-    if radius > 4.0:
-        rospy.logwarn("Too large! Reducing to 4.0")
-        radius = 4.0
+    radius = float(input("Enter circle radius (<= 2.0): "))
+    if radius > 2.0:
+        rospy.logwarn("Too large! Reducing to 2.0")
+        return
     if radius <= 0:
         rospy.logwarn("Radius must be positive! Setting to 1.0")
-        radius = 1.0
+        return
 
     # The user is asked to specify the direction
     # 1 = clockwise.
     # 2 = counterclockwise.
     # strip() removes extra spaces (if the user presses Space by mistake).
-    direction = input("Choose direction: 1 for clockwise, 2 for counter-clockwise: ")
+    direction = input("Choose direction: 1 for counter-clockwise, 2 for clockwise: ")
 
     # If the user enters anything other than 1 or 2.
     # Prints an alert.
@@ -189,10 +188,10 @@ def draw_spiral(velocity_publisher):
     start_radius = float(input("Enter starting radius: "))
     if start_radius < 0.1:
         rospy.logwarn("Too small! Using 0.1")
-        start_radius = 0.1
+        return
     elif start_radius > 1.0:
         rospy.logwarn("Too large! Reducing to 1.0")
-        start_radius = 1.0
+        return
 
     # The variable r represents the initial radius of the helical motion.
     # It starts at the user-defined value, controlling how tight the spiral begins.
@@ -230,10 +229,8 @@ def draw_spiral(velocity_publisher):
     if not is_within_bounds(pose.x, pose.y):
         rospy.logwarn("Robot stopped: reached boundary of the turtlesim window")
 
-
-
 def go_to_point(velocity_publisher):
-    #The user is prompted to enter x and y values ​​between 1 and 10.
+    #The user is prompted to enter x and y values between 1 and 10.
     #The entered string is converted to a decimal for subsequent calculations.    
     x_goal = float(input("Target x (1‑10): "))
     y_goal = float(input("Target y (1‑10): "))
@@ -243,52 +240,36 @@ def go_to_point(velocity_publisher):
     if not is_within_bounds(x_goal, y_goal):
         rospy.logerr("Coordinates out of range!")
         return
-
     #Twist holds the motion command:
     #linear.x → forward speed
     #angular.z → yaw rate
-    #Two proportional (Kp) gains:
-    #Linear speed ∝ remaining distance
-    #Angular speed ∝ heading error
-
     velocity_message = Twist()
     K_linear = 0.5
     K_angular = 4.0
-
     while True:
-
         # pose.x, pose.y are updated via the update_pose subscriber.
         # Threshold 0.1 m (≈ 10 cm) defines “arrival”.
         distance = math.sqrt((x_goal - pose.x) ** 2 + (y_goal - pose.y) ** 2)
         if distance < 0.1:
             break
-
         #Linear speed grows with distance (slows automatically when close).
-        #Desired heading from current pose to goal via atan2.
-        #Heading error = desired − current yaw (pose.theta).
-        #Angular speed proportional to that error.
         linear_speed = distance * K_linear
         desired_angle = math.atan2(y_goal - pose.y, x_goal - pose.x)
         angular_speed = (desired_angle - pose.theta) * K_angular
-
         #Sends the Twist message to /turtle1/cmd_vel.
         velocity_message.linear.x = linear_speed
         velocity_message.angular.z = angular_speed
         velocity_publisher.publish(velocity_message)
-
     #prints at most once every 0.3 s, even if the loop is faster.
     rospy.loginfo_throttle(
         0.3,
         f"pos=({pose.x:.2f},{pose.y:.2f})"
     )
-
     rospy.sleep(0.1)
-
     #Publishes a zero‑velocity Twist, halting the turtle.
     velocity_message.linear.x = 0
     velocity_message.angular.z = 0
     velocity_publisher.publish(velocity_message)
-
     #Double‑checks whether the turtle remained inside the window:
     #Outside → warning
     #Inside → success message with check‑mark
@@ -298,11 +279,12 @@ def go_to_point(velocity_publisher):
         rospy.loginfo("Target reached ✔")
 
 
+
 def draw_hexagon(velocity_publisher):
     length = float(input("enter the edge length of hexagon (<=2:)"))
     if length > 2:
        rospy.logwarn("Too large! reducing to 2")
-       length = 2.0
+       return
     
     for _ in range(6): 
         # Move the turtle forward a distance equal to the length of the side
@@ -310,42 +292,47 @@ def draw_hexagon(velocity_publisher):
         #After each side, the turtle rotates 60 degrees.
         rotate(velocity_publisher, 30, 60, False)
 
-def draw_sine_wave(velocity_publisher):
-    amplitude = float(input("Enter amplitude : "))
-    frequency = float(input("Enter frequency : "))
-    speed = float(input("Enter forward speed : "))
-    if amplitude <= 0 or frequency <= 0 or speed <= 0:
-        rospy.logwarn("Invalid input values. All values must be positive.")
+
+def draw_sine_wave(pub):
+    """
+    Let the user choose amplitude A, frequency f (cycles / m), and forward
+    speed v.  The turtle is then driven along y = A·sin(2πf·s), where s is
+    the arc‑length already travelled.
+    """
+
+    # ---------- user input ----------
+    A = float(input("Amplitude   A (0 < A ≤ 2.0 m): "))
+    f = float(input("Frequency   f (0 < f ≤ 2.0 cycles/m): "))
+    v = float(input("Forward speed v (0 < v ≤ 2.0 m/s): "))
+
+    # ---------- basic validation ----------
+    if not (0 < A <= 2.0 and 0 < f <= 2.0 and 0 < v <= 2.0):
+        rospy.logwarn("Values out of range — using defaults A=1, f=0.5, v=1")
         return
 
-    rate = rospy.Rate(30)
+    ω = 2.0 * math.pi * f          # angular frequency (rad / m)
+    rate = rospy.Rate(60)             # 60 Hz for a smooth path
     twist = Twist()
+    s = 0.0                           # distance travelled so far (m)
 
-    #The variable t represents time (it increases gradually with each iteration).
-    # It is used in the  sine wave equation.
-    t = 0.0
     while not rospy.is_shutdown():
-
-        # The mathematical equation for the instantaneous deflection angle is:
-        # Taken from the derivative of the function sin(fx) = f * cos(fx
-        # We use atan to obtain the angle representing the slope of the curve at each instant.
-        # This causes the turtle to follow the waveform.
-        angle = math.atan(amplitude * frequency * math.cos(frequency * t))
-
-        twist.linear.x = speed
-        twist.angular.z = angle
+        # slope dy/dx, then heading angle = atan(slope)
+        slope            = A * ω * math.cos(ω * s)
+        twist.linear.x   = v
+        twist.angular.z  = math.atan(slope)
 
         if not is_within_bounds(pose.x, pose.y):
-            print("Robot stopped: reached boundary of the turtlesim window.")
+            rospy.logwarn("Boundary reached — stopping sine wave.")
             break
 
-        velocity_publisher.publish(twist)
-        # Gradually increase the time (approximately every 0.05 seconds).
-        # Each new value of t represents a new point on the sine curve.
-        t += 0.05
+        pub.publish(twist)
+
+        # advance arc‑length: Δs = v · Δt   (Δt = 1 / 60 s)
+        s += v * (1.0 / 60.0)
         rate.sleep()
 
-    velocity_publisher.publish(Twist())
+    pub.publish(Twist())  # stop the turtle when finished
+
 
 def reset_turtle(_unused=None):
     rospy.wait_for_service("/reset")
@@ -394,4 +381,4 @@ if __name__== '__main__':
     try:
         main()
     except rospy.ROSInterruptException:
-            pass
+           pass
